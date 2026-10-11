@@ -376,3 +376,58 @@ export async function scrapeWebpageUniversal(
   const html = await fetchHtmlWithCorsFallback(url.trim());
   return parseHtmlClientSide(html, url.trim(), allowedExtensions);
 }
+
+/**
+ * Extracts image links from pasted plain text / URL list (useful for smartphones)
+ */
+export function parseUrlsFromText(
+  text: string,
+  targetUrl: string,
+  allowedExtensions: string[]
+): ScrapeResult {
+  const normalizedAllowedExts = allowedExtensions.map((e) => e.toLowerCase().replace(/^\./, ''));
+  // Match URLs in text
+  const urlRegex = /https?:\/\/[^\s<>"'{}|\\^`\[\]]+/gi;
+  const matches = text.match(urlRegex) || [];
+
+  const seen = new Set<string>();
+  const images: ScrapedImage[] = [];
+
+  matches.forEach((raw, idx) => {
+    const cleaned = cleanUrl(raw, targetUrl || raw);
+    if (!cleaned || seen.has(cleaned)) return;
+    seen.add(cleaned);
+
+    const ext = extractExtensionFromUrl(cleaned);
+    if (ext && normalizedAllowedExts.includes(ext)) {
+      images.push({
+        id: `img_url_${idx}_${Math.random().toString(36).slice(2, 7)}`,
+        url: cleaned,
+        filename: getFilenameFromUrl(cleaned, ext),
+        extension: ext,
+        alt: '',
+        sizeBytes: null,
+        contentType: null,
+        sourceTag: 'link',
+      });
+    }
+  });
+
+  return {
+    success: true,
+    pageTitle: targetUrl ? `貼り付けリスト (${targetUrl})` : '貼り付けた画像URLリスト',
+    finalUrl: targetUrl || 'https://pasted-urls.local',
+    totalFound: matches.length,
+    filteredCount: images.length,
+    images,
+  };
+}
+
+/**
+ * Generates a smartphone-friendly Bookmarklet that sends extracted images straight to this app
+ */
+export function generateBookmarkletCode(appUrl: string): string {
+  const cleanAppUrl = appUrl.split('#')[0].split('?')[0];
+  return `javascript:(function(){try{var s=new Set();document.querySelectorAll('img').forEach(function(i){if(i.src)s.add(i.src);if(i.dataset&&i.dataset.src)s.add(i.dataset.src);if(i.dataset&&i.dataset.original)s.add(i.dataset.original);});document.querySelectorAll('source').forEach(function(sc){if(sc.srcset)sc.srcset.split(',').forEach(function(p){var u=p.trim().split(' ')[0];if(u)s.add(u);});});document.querySelectorAll('a[href]').forEach(function(a){if(/\\.(jpe?g|png|webp|gif|avif)/i.test(a.href))s.add(a.href);});var arr=Array.from(s).filter(function(u){return /^https?:\\/\\//i.test(u);});if(arr.length===0){alert('ページ内に画像が見つかりませんでした');return;}var payload={title:document.title||'抽出画像',url:location.href,images:arr.slice(0,120)};var base='${cleanAppUrl.replace(/'/g, "\\'")}';window.open(base+(base.indexOf('#')===-1?'#':'&')+'import='+encodeURIComponent(JSON.stringify(payload)),'_blank');}catch(e){alert('エラー:'+e.message);}})();`;
+}
+

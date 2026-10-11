@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Download,
   Filter,
@@ -17,6 +17,8 @@ import {
   Sparkles,
   Info,
   FileCode,
+  Smartphone,
+  Link2,
 } from 'lucide-react';
 import {
   ScrapedImage,
@@ -26,7 +28,7 @@ import {
   FilenamePattern,
 } from './types';
 import { Header } from './components/Header';
-import { UrlInputBar } from './components/UrlInputBar';
+import { UrlInputBar, InputMode } from './components/UrlInputBar';
 import { ExtensionSelector } from './components/ExtensionSelector';
 import { DestinationConfig } from './components/DestinationConfig';
 import { ImageCard } from './components/ImageCard';
@@ -34,6 +36,7 @@ import { ImageTableView } from './components/ImageTableView';
 import { LightboxModal } from './components/LightboxModal';
 import { DownloadProgressModal } from './components/DownloadProgressModal';
 import { HelpModal } from './components/HelpModal';
+import { MobileGuideModal } from './components/MobileGuideModal';
 import {
   formatBytes,
   generateFilename,
@@ -42,13 +45,18 @@ import {
   downloadAsZip,
   downloadSequentiallyInBrowser,
 } from './utils/fileDownloader';
-import { scrapeWebpageUniversal, parseHtmlClientSide } from './utils/clientScraper';
+import {
+  scrapeWebpageUniversal,
+  parseHtmlClientSide,
+  parseUrlsFromText,
+} from './utils/clientScraper';
 
 export default function App() {
   const [url, setUrl] = useState('');
-  const [rawHtml, setRawHtml] = useState('');
-  const [inputMode, setInputMode] = useState<'url' | 'html'>('url');
+  const [rawText, setRawText] = useState('');
+  const [inputMode, setInputMode] = useState<InputMode>('url');
   const [allowedExtensions, setAllowedExtensions] = useState<string[]>(['jpeg', 'jpg']);
+  const [isMobileGuideOpen, setIsMobileGuideOpen] = useState(false);
   const [downloadSettings, setDownloadSettings] = useState<DownloadSettings>({
     mode: 'zip',
     targetFolder: 'images',
@@ -110,7 +118,56 @@ export default function App() {
     }
   };
 
-  // Perform Scraping (Universal: URL or Direct HTML paste)
+  // Support 1-tap Bookmarklet hash import payload: #import={"title":"...","url":"...","images":[...]}
+  useEffect(() => {
+    try {
+      const hash = window.location.hash;
+      if (hash && hash.includes('import=')) {
+        const match = hash.match(/import=([^&]+)/);
+        if (match) {
+          const decoded = decodeURIComponent(match[1]);
+          const payload = JSON.parse(decoded);
+          if (payload && Array.isArray(payload.images) && payload.images.length > 0) {
+            setUrl(payload.url || '');
+            const importedList: ScrapedImage[] = [];
+            payload.images.forEach((imgUrl: string, idx: number) => {
+              const clean = imgUrl.split('#')[0];
+              const ext = clean.split('?')[0].split('.').pop()?.toLowerCase() || 'jpg';
+              importedList.push({
+                id: `img_imported_${idx}_${Math.random().toString(36).slice(2, 7)}`,
+                url: clean,
+                filename: `image_${idx + 1}.${ext}`,
+                extension: ext,
+                alt: '',
+                sizeBytes: null,
+                contentType: null,
+                sourceTag: 'link',
+              });
+            });
+
+            setImages(importedList);
+            setScrapeInfo({
+              pageTitle: payload.title || 'ブックマークレットからインポート',
+              finalUrl: payload.url || window.location.href,
+              totalFound: payload.images.length,
+              filteredCount: importedList.length,
+            });
+
+            const allIds = new Set<string>();
+            importedList.forEach((it) => allIds.add(it.id));
+            setSelectedIds(allIds);
+
+            // Clean the hash from the browser address bar
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to parse import hash payload:', err);
+    }
+  }, [allowedExtensions]);
+
+  // Perform Scraping (Universal: URL, URL list or Direct HTML paste)
   const handleExtract = async () => {
     setIsLoading(true);
     setError(null);
@@ -118,14 +175,25 @@ export default function App() {
     try {
       let data: ScrapeResult;
 
-      if (inputMode === 'html') {
-        if (!rawHtml.trim()) {
+      if (inputMode === 'urls') {
+        if (!rawText.trim()) {
+          setError('画像URLリストまたはテキストを入力してください');
+          setIsLoading(false);
+          return;
+        }
+        data = parseUrlsFromText(
+          rawText,
+          url.trim() || 'https://local-source.com',
+          allowedExtensions
+        );
+      } else if (inputMode === 'html') {
+        if (!rawText.trim()) {
           setError('解析するHTMLソースコードを入力してください');
           setIsLoading(false);
           return;
         }
         data = parseHtmlClientSide(
-          rawHtml,
+          rawText,
           url.trim() || 'https://local-source.com',
           allowedExtensions
         );
@@ -416,12 +484,13 @@ export default function App() {
           <UrlInputBar
             url={url}
             setUrl={setUrl}
-            rawHtml={rawHtml}
-            setRawHtml={setRawHtml}
+            rawText={rawText}
+            setRawText={setRawText}
             inputMode={inputMode}
             setInputMode={setInputMode}
             isLoading={isLoading}
             onExtract={handleExtract}
+            onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -468,20 +537,39 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setInputMode('html');
+                    setInputMode('urls');
                     setError(null);
                   }}
                   className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
                 >
+                  <Link2 className="w-3.5 h-3.5" />
+                  <span>画像URL貼り付け (スマホ簡単)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputMode('html');
+                    setError(null);
+                  }}
+                  className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-700 rounded-lg transition-colors flex items-center gap-1.5"
+                >
                   <FileCode className="w-3.5 h-3.5" />
-                  <span>HTML直接貼り付けモードに切り替える (確実)</span>
+                  <span>HTMLソース貼り付け</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsMobileGuideOpen(true)}
+                  className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-amber-300 border border-neutral-700 rounded-lg transition-colors flex items-center gap-1.5"
+                >
+                  <Smartphone className="w-3.5 h-3.5 text-amber-400" />
+                  <span>スマホでの簡単抽出ガイド</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleExtract}
-                  className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-700/80 rounded-lg transition-colors"
+                  className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 rounded-lg transition-colors"
                 >
-                  プロキシで再試行
+                  再試行
                 </button>
               </div>
             )}
@@ -759,6 +847,13 @@ export default function App() {
 
       {/* Help Modal */}
       <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+
+      {/* Mobile Guide Modal */}
+      <MobileGuideModal
+        isOpen={isMobileGuideOpen}
+        onClose={() => setIsMobileGuideOpen(false)}
+        appUrl={window.location.href}
+      />
     </div>
   );
 }

@@ -2,27 +2,28 @@ import React, { useState } from 'react';
 import {
   Globe,
   FileCode,
+  Link2,
   Clipboard,
   X,
   Search,
   Loader2,
   Sparkles,
-  Upload,
-  BookOpen,
-  Check,
+  Smartphone,
+  Info,
 } from 'lucide-react';
 
-export type InputMode = 'url' | 'html';
+export type InputMode = 'url' | 'urls' | 'html';
 
 interface UrlInputBarProps {
   url: string;
   setUrl: (url: string) => void;
-  rawHtml: string;
-  setRawHtml: (html: string) => void;
+  rawText: string;
+  setRawText: (text: string) => void;
   inputMode: InputMode;
   setInputMode: (mode: InputMode) => void;
   isLoading: boolean;
   onExtract: () => void;
+  onOpenMobileGuide: () => void;
 }
 
 const SAMPLE_URLS = [
@@ -43,14 +44,14 @@ const SAMPLE_URLS = [
 export const UrlInputBar: React.FC<UrlInputBarProps> = ({
   url,
   setUrl,
-  rawHtml,
-  setRawHtml,
+  rawText,
+  setRawText,
   inputMode,
   setInputMode,
   isLoading,
   onExtract,
+  onOpenMobileGuide,
 }) => {
-  const [copiedBookmarklet, setCopiedBookmarklet] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
   const handlePasteUrl = async () => {
@@ -62,10 +63,10 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
     }
   };
 
-  const handlePasteHtml = async () => {
+  const handlePasteText = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      if (text) setRawHtml(text);
+      if (text) setRawText(text);
     } catch {
       // ignore
     }
@@ -75,25 +76,13 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    if (file && (file.name.endsWith('.html') || file.name.endsWith('.htm') || file.type.includes('html'))) {
+    if (file) {
       const reader = new FileReader();
       reader.onload = (event) => {
         const content = event.target?.result as string;
-        if (content) setRawHtml(content);
+        if (content) setRawText(content);
       };
       reader.readAsText(file);
-    }
-  };
-
-  const handleCopyBookmarklet = async () => {
-    // A lightweight bookmarklet that copies document.documentElement.outerHTML to clipboard
-    const code = `javascript:(function(){try{navigator.clipboard.writeText(document.documentElement.outerHTML).then(function(){alert('HTMLソースをクリップボードにコピーしました！ダウンローダーの「HTML直接貼り付け」に貼り付けてください。');});}catch(e){var t=document.createElement('textarea');t.value=document.documentElement.outerHTML;document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);alert('HTMLソースをコピーしました！');}})();`;
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopiedBookmarklet(true);
-      setTimeout(() => setCopiedBookmarklet(false), 2500);
-    } catch {
-      // ignore
     }
   };
 
@@ -105,13 +94,13 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
 
   return (
     <div id="extractor" className="space-y-3">
-      {/* Input Mode Selector Tabs */}
-      <div className="flex items-center justify-between gap-3 border-b border-neutral-800 pb-2">
-        <div className="flex items-center gap-1.5 p-1 bg-neutral-900 border border-neutral-800 rounded-xl">
+      {/* Input Mode Tabs & Smartphone Quick Helper */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-2">
+        <div className="flex items-center gap-1 p-1 bg-neutral-900 border border-neutral-800 rounded-xl overflow-x-auto max-w-full">
           <button
             type="button"
             onClick={() => setInputMode('url')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
               inputMode === 'url'
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
                 : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60'
@@ -123,35 +112,43 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
 
           <button
             type="button"
+            onClick={() => setInputMode('urls')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+              inputMode === 'urls'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60'
+            }`}
+          >
+            <Link2 className="w-3.5 h-3.5 text-amber-400" />
+            <span>画像URL貼付 (スマホ推奨)</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setInputMode('html')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
               inputMode === 'html'
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
                 : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60'
             }`}
           >
             <FileCode className="w-3.5 h-3.5 text-amber-400" />
-            <span>HTML直接貼り付け (確実・CORS制限なし)</span>
+            <span>HTMLソース貼付</span>
           </button>
         </div>
 
-        {/* Bookmarklet Quick Helper */}
+        {/* Smartphone Helper Button */}
         <button
           type="button"
-          onClick={handleCopyBookmarklet}
-          className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-neutral-400 hover:text-amber-300 bg-neutral-900/60 hover:bg-neutral-900 border border-neutral-800 rounded-lg transition-colors font-mono"
-          title="ブックマークバーに登録すると、閲覧中ページのHTMLを1クリックでコピーできます"
+          onClick={onOpenMobileGuide}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg transition-colors whitespace-nowrap self-start sm:self-auto"
         >
-          {copiedBookmarklet ? (
-            <Check className="w-3.5 h-3.5 text-emerald-400" />
-          ) : (
-            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-          )}
-          <span>{copiedBookmarklet ? 'ブックマークレットをコピー完了！' : 'HTML一括コピー用ブックマークレット'}</span>
+          <Smartphone className="w-3.5 h-3.5 text-amber-400" />
+          <span>スマホでの簡単な抽出方法</span>
         </button>
       </div>
 
-      {inputMode === 'url' ? (
+      {inputMode === 'url' && (
         /* Mode 1: URL input */
         <>
           <div className="flex flex-col sm:flex-row items-stretch gap-2.5">
@@ -228,8 +225,80 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
             ))}
           </div>
         </>
-      ) : (
-        /* Mode 2: Direct HTML paste */
+      )}
+
+      {inputMode === 'urls' && (
+        /* Mode 2: Image URLs / Text batch paste (Mobile-friendly) */
+        <div className="space-y-3 p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs text-neutral-300 font-medium">
+            <div className="flex items-center gap-1.5">
+              <Link2 className="w-4 h-4 text-amber-400" />
+              <span>画像URLリストまたはテキストを貼り付け:</span>
+            </div>
+            <span className="text-neutral-500 font-normal">
+              ※ 画像リンク（.jpg, .png等）が含まれる文章をそのまま貼り付けても自動抽出されます
+            </span>
+          </div>
+
+          <div className="relative rounded-xl border border-neutral-800 bg-neutral-950/80 focus-within:border-amber-500/60 transition-all">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800/80 text-xs text-neutral-400 bg-neutral-900/40 rounded-t-xl">
+              <span>画像URL（複数行・改行区切り可、またはURLを含むテキスト）</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePasteText}
+                  className="hover:text-amber-300 transition-colors flex items-center gap-1"
+                >
+                  <Clipboard className="w-3.5 h-3.5" />
+                  <span>貼り付け</span>
+                </button>
+                {rawText && (
+                  <button
+                    type="button"
+                    onClick={() => setRawText('')}
+                    className="hover:text-red-300 transition-colors flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>クリア</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <textarea
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder="https://example.com/photo1.jpg&#10;https://example.com/photo2.png&#10;（スマホで画像を長押ししてコピーしたURLや、メモ・テキストをここに貼り付けてください）"
+              rows={5}
+              className="w-full p-3 bg-transparent text-xs text-neutral-200 placeholder:text-neutral-600 font-mono focus:outline-none resize-y"
+            />
+          </div>
+
+          <div className="flex justify-end pt-1">
+            <button
+              type="button"
+              onClick={onExtract}
+              disabled={isLoading || !rawText.trim()}
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 disabled:bg-neutral-800 disabled:text-neutral-600 disabled:cursor-not-allowed text-neutral-950 font-semibold text-sm rounded-xl transition-all shadow-sm"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>解析中...</span>
+                </>
+              ) : (
+                <>
+                  <Search className="w-4 h-4" />
+                  <span>貼り付けたURLから画像を抽出</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {inputMode === 'html' && (
+        /* Mode 3: Direct HTML paste (PC-friendly) */
         <div className="space-y-3 p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-1.5 text-neutral-300 font-medium">
@@ -237,7 +306,7 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
               <span>ページの基準URL (相対リンクの解決用・任意):</span>
             </div>
             <span className="text-neutral-500">
-              ※ 画像URLが &quot;/img/photo.jpg&quot; 等の場合に完全なURLに変換するために使用します
+              ※ 画像URLが &quot;/img/photo.jpg&quot; 等の場合に完全なURLに復元します
             </span>
           </div>
 
@@ -278,20 +347,20 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
             }`}
           >
             <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800/80 text-xs text-neutral-400 bg-neutral-900/40 rounded-t-xl">
-              <span>HTMLソースコードを貼り付け、または .html ファイルをドラッグ＆ドロップ</span>
+              <span>HTMLソースコードを貼り付け、または .html ファイルをドロップ</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={handlePasteHtml}
+                  onClick={handlePasteText}
                   className="hover:text-amber-300 transition-colors flex items-center gap-1"
                 >
                   <Clipboard className="w-3.5 h-3.5" />
                   <span>貼り付け</span>
                 </button>
-                {rawHtml && (
+                {rawText && (
                   <button
                     type="button"
-                    onClick={() => setRawHtml('')}
+                    onClick={() => setRawText('')}
                     className="hover:text-red-300 transition-colors flex items-center gap-1"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -302,28 +371,20 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
             </div>
 
             <textarea
-              value={rawHtml}
-              onChange={(e) => setRawHtml(e.target.value)}
-              placeholder="ブラウザでページを開き、[Ctrl+U]（ページのソースを表示）で全選択コピーしたHTMLをここに貼り付けてください..."
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder="ページのソースコード (Ctrl+U) をここに貼り付けてください..."
               rows={6}
               className="w-full p-3 bg-transparent text-xs text-neutral-200 placeholder:text-neutral-600 font-mono focus:outline-none resize-y"
             />
           </div>
 
-          {/* Instructions and Submit */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-            <div className="text-[11px] text-neutral-400 space-y-0.5">
-              <p>💡 <strong>HTML取得方法:</strong></p>
-              <p>1. 対象ページを通常ブラウザで開く</p>
-              <p>2. 右クリック → 「ページのソースを表示（Ctrl+U）」</p>
-              <p>3. 全て選択（Ctrl+A）→ コピー（Ctrl+C）して上記に貼り付け</p>
-            </div>
-
+          <div className="flex justify-end pt-1">
             <button
               type="button"
               onClick={onExtract}
-              disabled={isLoading || !rawHtml.trim()}
-              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 disabled:bg-neutral-800 disabled:text-neutral-600 disabled:cursor-not-allowed text-neutral-950 font-semibold text-sm rounded-xl transition-all shadow-sm shrink-0 whitespace-nowrap self-end sm:self-auto"
+              disabled={isLoading || !rawText.trim()}
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 disabled:bg-neutral-800 disabled:text-neutral-600 disabled:cursor-not-allowed text-neutral-950 font-semibold text-sm rounded-xl transition-all shadow-sm"
             >
               {isLoading ? (
                 <>
