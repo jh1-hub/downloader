@@ -16,6 +16,7 @@ import {
   AlertCircle,
   Sparkles,
   Info,
+  FileCode,
 } from 'lucide-react';
 import {
   ScrapedImage,
@@ -41,10 +42,12 @@ import {
   downloadAsZip,
   downloadSequentiallyInBrowser,
 } from './utils/fileDownloader';
-import { scrapeWebpageUniversal } from './utils/clientScraper';
+import { scrapeWebpageUniversal, parseHtmlClientSide } from './utils/clientScraper';
 
 export default function App() {
   const [url, setUrl] = useState('');
+  const [rawHtml, setRawHtml] = useState('');
+  const [inputMode, setInputMode] = useState<'url' | 'html'>('url');
   const [allowedExtensions, setAllowedExtensions] = useState<string[]>(['jpeg', 'jpg']);
   const [downloadSettings, setDownloadSettings] = useState<DownloadSettings>({
     mode: 'zip',
@@ -107,15 +110,33 @@ export default function App() {
     }
   };
 
-  // Perform Scraping (Universal: Server or Client CORS for GitHub Pages)
+  // Perform Scraping (Universal: URL or Direct HTML paste)
   const handleExtract = async () => {
-    if (!url.trim()) return;
-
     setIsLoading(true);
     setError(null);
 
     try {
-      const data = await scrapeWebpageUniversal(url.trim(), allowedExtensions);
+      let data: ScrapeResult;
+
+      if (inputMode === 'html') {
+        if (!rawHtml.trim()) {
+          setError('解析するHTMLソースコードを入力してください');
+          setIsLoading(false);
+          return;
+        }
+        data = parseHtmlClientSide(
+          rawHtml,
+          url.trim() || 'https://local-source.com',
+          allowedExtensions
+        );
+      } else {
+        if (!url.trim()) {
+          setError('WebページのURLを入力してください');
+          setIsLoading(false);
+          return;
+        }
+        data = await scrapeWebpageUniversal(url.trim(), allowedExtensions);
+      }
 
       setImages(data.images || []);
       setScrapeInfo({
@@ -395,6 +416,10 @@ export default function App() {
           <UrlInputBar
             url={url}
             setUrl={setUrl}
+            rawHtml={rawHtml}
+            setRawHtml={setRawHtml}
+            inputMode={inputMode}
+            setInputMode={setInputMode}
             isLoading={isLoading}
             onExtract={handleExtract}
           />
@@ -414,20 +439,52 @@ export default function App() {
           </div>
         </section>
 
-        {/* Error Notification */}
+        {/* Error Notification with Smart Fallback CTA */}
         {error && (
-          <div className="p-4 rounded-xl bg-red-950/40 border border-red-800/80 text-red-200 text-xs flex items-center justify-between gap-3 animate-in fade-in">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-              <span>{error}</span>
+          <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-600/50 text-amber-200 text-xs space-y-2.5 animate-in fade-in">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-semibold text-neutral-100">{error}</span>
+                  {inputMode === 'url' && (
+                    <p className="text-neutral-300 leading-relaxed">
+                      💡 <strong>ヒント:</strong> 対象サイトが外部プロキシからのアクセスを拒否またはタイムアウトさせている可能性があります。お使いのブラウザで開けているページであれば、<strong>「HTML直接貼り付け」</strong>を利用すると、CORS制限を一切受けずに100%確実に全画像を取得できます。
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="text-neutral-400 hover:text-neutral-200 shrink-0"
+              >
+                閉じる
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-200"
-            >
-              閉じる
-            </button>
+
+            {inputMode === 'url' && (
+              <div className="pt-2 border-t border-amber-500/20 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputMode('html');
+                    setError(null);
+                  }}
+                  className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+                >
+                  <FileCode className="w-3.5 h-3.5" />
+                  <span>HTML直接貼り付けモードに切り替える (確実)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExtract}
+                  className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-700/80 rounded-lg transition-colors"
+                >
+                  プロキシで再試行
+                </button>
+              </div>
+            )}
           </div>
         )}
 

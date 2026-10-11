@@ -1,9 +1,31 @@
 import { ScrapedImage, ScrapeResult } from '../types';
 
 export const CORS_PROXIES = [
-  { name: 'AllOrigins', format: (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
-  { name: 'CORSProxy.io', format: (url: string) => `https://corsproxy.io/?url=${encodeURIComponent(url)}` },
-  { name: 'CodeTabs', format: (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}` },
+  {
+    name: 'CORSProxy.io',
+    type: 'raw',
+    format: (url: string) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  },
+  {
+    name: 'AllOrigins Raw',
+    type: 'raw',
+    format: (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  },
+  {
+    name: 'AllOrigins JSON',
+    type: 'json',
+    format: (url: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+  },
+  {
+    name: 'CodeTabs',
+    type: 'raw',
+    format: (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  },
+  {
+    name: 'ThingProxy',
+    type: 'raw',
+    format: (url: string) => `https://thingproxy.freeboard.io/fetch/${url}`,
+  },
 ];
 
 function cleanUrl(rawUrl: string, baseUrl: string): string | null {
@@ -82,47 +104,86 @@ function getFilenameFromUrl(urlStr: string, fallbackExt: string = 'jpg'): string
 }
 
 /**
- * Fetches HTML from a target URL via CORS proxies for static environments like GitHub Pages
+ * Fetches HTML from a target URL with multi-proxy fallback and race execution
  */
 export async function fetchHtmlWithCorsFallback(targetUrl: string): Promise<string> {
-  // First try direct fetch (some URLs allow CORS)
+  // 1. Direct fetch attempt (works for CORS-enabled sites)
   try {
     const directRes = await fetch(targetUrl, { mode: 'cors' });
     if (directRes.ok) {
-      return await directRes.text();
+      const html = await directRes.text();
+      if (html && html.length > 50) return html;
     }
   } catch {
-    // Expected to fail on most cross-origin sites
+    // Expected to fail for cross-origin targets without CORS
   }
 
-  // Iterate through public CORS proxies
-  let lastError: any = null;
-  for (const proxy of CORS_PROXIES) {
+  // 2. Helper to fetch single proxy with timeout
+  const fetchFromProxy = async (proxy: (typeof CORS_PROXIES)[0], timeoutMs: number): Promise<string> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
       const proxyUrl = proxy.format(targetUrl);
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
-      const res = await fetch(proxyUrl, { signal: controller.signal });
-      clearTimeout(timeout);
+      const res = await fetch(proxyUrl, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      });
+      clearTimeout(timer);
 
-      if (res.ok) {
-        const html = await res.text();
-        if (html && html.length > 50) {
-          return html;
-        }
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
       }
-    } catch (err) {
-      lastError = err;
+
+      if (proxy.type === 'json') {
+        const json = await res.json();
+        if (json?.contents && typeof json.contents === 'string') {
+          return json.contents;
+        }
+        throw new Error('Invalid JSON proxy response');
+      }
+
+      const html = await res.text();
+      if (html && html.length > 50) {
+        return html;
+      }
+      throw new Error('Empty response');
+    } catch (err: any) {
+      clearTimeout(timer);
+      throw err;
+    }
+  };
+
+  // 3. Fast Parallel Attempt on top 2 proxies (CORSProxy.io and AllOrigins)
+  try {
+    const fastWinner = await Promise.any([
+      fetchFromProxy(CORS_PROXIES[0], 8000),
+      fetchFromProxy(CORS_PROXIES[1], 8000),
+    ]);
+    if (fastWinner) return fastWinner;
+  } catch {
+    // Top 2 failed or timed out, proceed to sequential fallback
+  }
+
+  // 4. Sequential fallback on remaining proxies
+  for (let i = 2; i < CORS_PROXIES.length; i++) {
+    try {
+      const html = await fetchFromProxy(CORS_PROXIES[i], 10000);
+      if (html) return html;
+    } catch {
+      // try next
     }
   }
 
   throw new Error(
-    `Webページの取得に失敗しました (CORS制約)。URLを確認するか、プロキシ経由で再試行してください: ${lastError?.message || ''}`
+    'Webページの取得に失敗しました (対象サイトが外部プロキシをブロックしているか、タイムアウトが発生しました)。「HTML直接貼り付け」モードを使用すると100%確実に解析できます。'
   );
 }
 
 /**
- * Parses HTML and extracts images in client-side environments (GitHub Pages)
+ * Parses HTML and extracts images in client-side environments (GitHub Pages & Direct HTML Paste)
  */
 export function parseHtmlClientSide(
   html: string,
@@ -132,7 +193,15 @@ export function parseHtmlClientSide(
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
 
-  const pageTitle = doc.querySelector('title')?.textContent?.trim() || new URL(targetUrl).hostname;
+  let pageTitle = doc.querySelector('title')?.textContent?.trim() || '';
+  if (!pageTitle) {
+    try {
+      pageTitle = new URL(targetUrl).hostname;
+    } catch {
+      pageTitle = '貼り付けたHTML';
+    }
+  }
+
   const normalizedAllowedExts = allowedExtensions.map((e) => e.toLowerCase().replace(/^\./, ''));
 
   interface RawItem {
@@ -275,9 +344,9 @@ export async function scrapeWebpageUniversal(
   url: string,
   allowedExtensions: string[]
 ): Promise<ScrapeResult> {
-  // Try server endpoint
+  // Try server endpoint first
   try {
-    const serverRes = await fetch('./api/scrape', {
+    const serverRes = await fetch('/api/scrape', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -290,21 +359,20 @@ export async function scrapeWebpageUniversal(
     if (serverRes.ok) {
       return await serverRes.json();
     }
-    // If 404, we are on GitHub Pages static host! Fall through to client scraper
+
     if (serverRes.status !== 404 && serverRes.status !== 502) {
       const errData = await serverRes.json().catch(() => null);
-      if (errData?.error) {
+      if (errData?.error && !errData.error.includes('aborted')) {
         throw new Error(errData.error);
       }
     }
   } catch (err: any) {
-    // If network error or 404, proceed to client-side scraper
     if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('404')) {
-      console.warn('Server scrape failed, trying client scraper fallback:', err);
+      console.warn('Server scrape failed, attempting client CORS proxy:', err);
     }
   }
 
-  // Client-side fallback for GitHub Pages
+  // Client-side fallback for GitHub Pages or blocked servers
   const html = await fetchHtmlWithCorsFallback(url.trim());
   return parseHtmlClientSide(html, url.trim(), allowedExtensions);
 }

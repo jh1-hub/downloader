@@ -38,10 +38,11 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-mono text-xs">
                 1
               </span>
-              URLを入力して画像リンクを抽出
+              2つの抽出モード: URL自動取得 ＆ HTML直接貼り付け
             </div>
             <p className="text-neutral-400">
-              抽出したいWebサイトのURLを入力し、「画像リンクを取得」をクリックします。サーバー側でHTMLを解析し、&lt;img&gt;、&lt;picture&gt;、&lt;a&gt;リンク、OpenGraphメタタグ、CSS背景画像からすべての対象画像を高速検出します。
+              <strong>URLから自動取得:</strong> WebサイトのURLを入力するだけで、自動的に画像リンクを検出・抽出します。<br />
+              <strong>HTML直接貼り付け (確実・推奨):</strong> 対象サイトが外部アクセスを拒否する場合やCORS制限がある場合、ブラウザで閲覧中のページ上で <code>Ctrl+U</code>（ソースを表示）を押して全選択コピーしたHTMLを貼り付けるだけで、外部制限を100%回避して安全・瞬時に全画像を抽出できます。
             </p>
           </div>
 
