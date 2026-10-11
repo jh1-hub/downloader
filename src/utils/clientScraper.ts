@@ -378,12 +378,13 @@ export async function scrapeWebpageUniversal(
 }
 
 /**
- * Extracts image links from pasted plain text / URL list (useful for smartphones)
+ * Extracts image links from pasted plain text / URL list (useful for smartphones & sequential URLs)
  */
 export function parseUrlsFromText(
   text: string,
   targetUrl: string,
-  allowedExtensions: string[]
+  allowedExtensions: string[],
+  bypassExtensionFilter: boolean = false
 ): ScrapeResult {
   const normalizedAllowedExts = allowedExtensions.map((e) => e.toLowerCase().replace(/^\./, ''));
   // Match URLs in text
@@ -398,8 +399,8 @@ export function parseUrlsFromText(
     if (!cleaned || seen.has(cleaned)) return;
     seen.add(cleaned);
 
-    const ext = extractExtensionFromUrl(cleaned);
-    if (ext && normalizedAllowedExts.includes(ext)) {
+    const ext = extractExtensionFromUrl(cleaned) || 'jpg';
+    if (bypassExtensionFilter || normalizedAllowedExts.length === 0 || normalizedAllowedExts.includes(ext)) {
       images.push({
         id: `img_url_${idx}_${Math.random().toString(36).slice(2, 7)}`,
         url: cleaned,

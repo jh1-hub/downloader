@@ -92,6 +92,18 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               元のファイル名のほか、「001.jpgなどの連番のみ」「photo_001.jpgなどのプレフィックス連番」「ドメイン名付与」からファイル命名規則を選択できます。また、ファイルサイズでの絞り込み（アイコンや微小画像の除外）やキーワード検索も可能です。
             </p>
           </div>
+
+          <div className="p-3.5 bg-neutral-900/80 border border-neutral-800 rounded-xl space-y-2">
+            <div className="font-semibold text-neutral-100 text-sm flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-mono text-xs">
+                5
+              </span>
+              連番URL自動生成・推察（例: p001.jpg → p300.jpg）
+            </div>
+            <p className="text-neutral-400">
+              「画像URL貼付」タブまたは上部の「連番URL生成」から、1枚の画像リンク（例: <code>https://example.com/p001.jpg</code>）を入力すると、ファイル名の連番形式（開始番号、ゼロ埋め桁数）を自動推察し、指定した終了番号（例: 300まで）までの全リンクを一括生成して即座にダウンロード対象として読み込めます。
+            </p>
+          </div>
         </div>
 
         <div className="pt-2 flex justify-end">

@@ -50,6 +50,11 @@ import {
   parseHtmlClientSide,
   parseUrlsFromText,
 } from './utils/clientScraper';
+import {
+  detectSequencePattern,
+  generateSequenceUrls,
+  isDirectImageUrl,
+} from './utils/sequenceGenerator';
 
 export default function App() {
   const [url, setUrl] = useState('');
@@ -198,12 +203,53 @@ export default function App() {
           allowedExtensions
         );
       } else {
-        if (!url.trim()) {
-          setError('WebページのURLを入力してください');
+        const trimmedUrl = url.trim();
+        if (!trimmedUrl) {
+          setError('WebページのURLまたは画像URLを入力してください');
           setIsLoading(false);
           return;
         }
-        data = await scrapeWebpageUniversal(url.trim(), allowedExtensions);
+
+        const seqPattern = detectSequencePattern(trimmedUrl);
+
+        // 1. Explicit bracket range syntax like p[001-300].jpg or p{1-300}.jpg
+        if (seqPattern?.explicitRange) {
+          const generated = generateSequenceUrls(
+            seqPattern.prefixUrl,
+            seqPattern.explicitRange.start,
+            seqPattern.explicitRange.end,
+            seqPattern.explicitRange.pad,
+            seqPattern.suffixUrl,
+            1
+          );
+          handleApplySequenceUrls(generated);
+          return;
+        }
+
+        // 2. Direct image URL with detected sequence (e.g. p001.jpg)
+        if (isDirectImageUrl(trimmedUrl) && seqPattern?.detected) {
+          // Auto-infer sequence up to 300 (or user-specified high range)
+          const targetEnd = seqPattern.startNumber <= 1 ? 300 : Math.max(seqPattern.startNumber + 50, 300);
+          const start = seqPattern.startNumber <= 1 ? 1 : 1;
+          const generated = generateSequenceUrls(
+            seqPattern.prefixUrl,
+            start,
+            targetEnd,
+            seqPattern.padLength,
+            seqPattern.suffixUrl,
+            1
+          );
+          handleApplySequenceUrls(generated);
+          return;
+        }
+
+        // 3. Single direct image URL without sequence
+        if (isDirectImageUrl(trimmedUrl)) {
+          data = parseUrlsFromText(trimmedUrl, trimmedUrl, allowedExtensions, true);
+        } else {
+          // Standard webpage scraping
+          data = await scrapeWebpageUniversal(trimmedUrl, allowedExtensions);
+        }
       }
 
       setImages(data.images || []);
@@ -227,6 +273,43 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Handle Sequential URL generation (e.g. p001.jpg -> p300.jpg)
+  const handleApplySequenceUrls = (generatedUrls: string[]) => {
+    if (generatedUrls.length === 0) return;
+    setRawText(generatedUrls.join('\n'));
+    setInputMode('urls');
+
+    const firstUrl = generatedUrls[0];
+    const firstExt = firstUrl.split('?')[0].split('.').pop()?.toLowerCase();
+    if (firstExt && !allowedExtensions.includes(firstExt)) {
+      setAllowedExtensions((prev) => [...prev, firstExt]);
+    }
+
+    const data = parseUrlsFromText(
+      generatedUrls.join('\n'),
+      firstUrl || url,
+      allowedExtensions,
+      true // bypass extension filter so none are dropped
+    );
+
+    const firstFilename = firstUrl.split('/').pop() || 'image_1';
+    const lastFilename = generatedUrls[generatedUrls.length - 1].split('/').pop() || '';
+
+    setImages(data.images || []);
+    setScrapeInfo({
+      pageTitle: `連番推察: ${firstFilename} 〜 ${lastFilename} (${data.images.length}枚)`,
+      finalUrl: firstUrl || url,
+      totalFound: data.totalFound,
+      filteredCount: data.filteredCount,
+    });
+
+    const initialSelected = new Set<string>();
+    (data.images || []).forEach((img: ScrapedImage) => initialSelected.add(img.id));
+    setSelectedIds(initialSelected);
+    setActiveExtFilter('all');
+    setError(null);
   };
 
   // Selection handlers
@@ -491,6 +574,7 @@ export default function App() {
             isLoading={isLoading}
             onExtract={handleExtract}
             onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
+            onApplySequenceUrls={handleApplySequenceUrls}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
