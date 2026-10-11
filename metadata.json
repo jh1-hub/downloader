@@ -1,0 +1,6 @@
+{
+  "name": "Web Image Extractor & Downloader",
+  "description": "Extract image links (JPG, JPEG, PNG, etc.) from any webpage URL with configurable extensions, folder destination selection, and bulk downloading.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
